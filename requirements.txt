@@ -1,0 +1,25 @@
+# Core
+numpy>=1.26.0
+Pillow>=10.4.0
+boto3>=1.34.0
+python-dotenv>=1.0.1
+pandas>=2.2.2
+openpyxl>=3.1.5
+sqlalchemy>=2.0.30
+pymysql>=1.1.0
+opencv-python>=4.10.0.84
+SpeechRecognition>=3.10.4
+pyaudio>=0.2.14
+PyQt6>=6.7.0
+twilio>=9.2.4
+
+# Face recognition
+deepface>=0.0.79
+tqdm>=4.66.4
+gdown>=5.2.0
+
+# Optional (Windows microphone listing stability)
+pywin32>=306; platform_system=="Windows"
+
+# Optional heavy dependency for DeepFace models (CPU)
+# tensorflow==2.11.0
