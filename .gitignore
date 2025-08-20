@@ -1,3 +1,39 @@
-echo ".env" >> .gitignore
-echo "*.log" >> .gitignore
-echo "__pycache__/" >> .gitignore
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editors/IDE
+.vscode/
+.idea/
+
+# Environment files (secrets)
+.env
+**/.env
+*.env
+
+# Logs
+*.log
+
+# Large/derived data and models
+*.pkl
+*.onnx
+augmented_faces/
+**/augmented_faces/
+*.xlsx
+EXCEL_DETAILS/
+
+# Local tool/SDK directories
+Deep_Face/**/venv/
+Deep_Face/tfenv310/
+tfenv310/
+
+# OS files
+.DS_Store
+Thumbs.db

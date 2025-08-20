@@ -344,6 +344,23 @@ class AIReceptionBot:
                 self.voice_agent.speak(response)
                 self.avatar_agent.show_idle()
                 time.sleep(0.5)
+                
+                # Don't ask follow-up if we're waiting for appointment time
+                is_waiting_for_time = (
+                    hasattr(self, 'dialog_context') and 
+                    self.dialog_context.get('pending_action') == 'waiting_for_time'
+                )
+                
+                # Only ask follow-up if not waiting for time and not asking for time input
+                if not is_waiting_for_time and not (
+                    "What time would you like to meet" in response or
+                    "whom would you like to meet" in response
+                ):
+                    self.avatar_agent.show_speaking()
+                    self.voice_agent.speak(FOLLOW_UP_PROMPT)
+                    self.avatar_agent.show_idle()
+                    time.sleep(0.3)
+                    
             logging.info("Single question processed - continuing conversation naturally...")
             continue
             

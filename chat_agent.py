@@ -98,8 +98,8 @@ class ChatAgent:
                     }
                 ],
                 "inferenceConfig": {
-                    "maxTokens": 1000,
-                    "temperature": 0.7,
+                    "maxTokens": 120,
+                    "temperature": 0.6,
                     "topP": 0.9,
                 },
             }
@@ -133,8 +133,8 @@ class ChatAgent:
             text_body = {
                 "inputText": prompt,
                 "textGenerationConfig": {
-                    "maxTokenCount": 1000,
-                    "temperature": 0.7,
+                    "maxTokenCount": 120,
+                    "temperature": 0.6,
                     "topP": 0.9,
                 },
             }
@@ -188,7 +188,7 @@ class ChatAgent:
                             }
                         ],
                         "max_tokens": 1000,
-                        "temperature": 0.7,
+                        "temperature": 0.65,
                         "top_p": 0.9,
                         "anthropic_version": "bedrock-2023-05-31",
                     }
@@ -217,7 +217,7 @@ class ChatAgent:
                         ],
                         "inferenceConfig": {
                             "maxTokens": 1000,
-                            "temperature": 0.7,
+                            "temperature": 0.65,
                             "topP": 0.9,
                         },
                     }
@@ -247,7 +247,7 @@ class ChatAgent:
                         "inputText": prompt,
                         "textGenerationConfig": {
                             "maxTokenCount": 1000,
-                            "temperature": 0.7,
+                            "temperature": 0.65,
                             "topP": 0.9,
                         },
                     }
@@ -615,9 +615,9 @@ class ChatAgent:
     def process_general_query(self, user_input):
         """Process general conversation queries with natural responses"""
         prompt = f"""
-        You are a professional human receptionist at a company. Respond to the user's query naturally and professionally.
-        Keep responses helpful and concise. Never mention that you are an AI or program - act like a real human receptionist.
-        Be polite, attentive, and able to handle any question about directions, appointments, employee details, general questions, etc.
+        You are a professional human receptionist at a company. Respond naturally and professionally.
+        Keep replies short and crisp: 1–2 sentences max, unless the user explicitly asks for details.
+        Never mention that you are an AI; act like a real receptionist.
         
         User query: {user_input}
         """

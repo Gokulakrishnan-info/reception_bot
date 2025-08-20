@@ -75,39 +75,74 @@ class VoiceAgent:
             self.selected_microphone = None
         
     def speak_with_interruption_detection(self, text):
-        """Speak text with real-time interruption detection"""
-        self.is_speaking = True
-        self.interruption_detected = False
-        self.interruption_text = None
-        
-        # Start speaking in a separate thread
-        self.speaking_thread = threading.Thread(target=self._speak_text, args=(text,))
-        self.speaking_thread.start()
-        
-        # Start listening for interruptions in parallel
-        interruption_thread = threading.Thread(target=self._listen_for_interruption)
-        interruption_thread.start()
-        
-        # Wait for either speaking to complete or interruption
-        self.speaking_thread.join()
-        interruption_thread.join()
-        
-        self.is_speaking = False
-        return self.interruption_detected, self.interruption_text
+        """Speak text with barge-in enabled: stop TTS and capture user speech if they start talking."""
+        try:
+            self.is_speaking = True
+            self.interruption_detected = False
+            self.interruption_text = None
+            # Start lightweight interruption listener in parallel
+            listener = threading.Thread(target=self._listen_for_interruption, daemon=True)
+            listener.start()
+            # Speak (playback loop checks self.interruption_detected)
+            self._speak_text(text)
+        finally:
+            self.is_speaking = False
+        # Give the listener a brief moment to finalize recognition if it just triggered
+        try:
+            if 'listener' in locals() and listener.is_alive():
+                listener.join(timeout=0.2)
+        except Exception:
+            pass
+        return self.interruption_detected, (self.interruption_text or None)
         
     def _synthesize_polly_stream(self, text: str):
-        """Synthesize speech with Amazon Polly and return streaming AudioStream."""
+        """Synthesize speech with Amazon Polly and return streaming AudioStream.
+        Prefer Neural voices: try a list of common Neural-supported voices and pick the first that works in this region.
+        If no Neural voice works, fall back to Standard for the first candidate.
+        """
+        neural_candidates = [
+            "Joanna",  # en-US (Neural widely available)
+            "Matthew", # en-US (Neural widely available)
+            "Amy",     # en-GB (Neural in many regions)
+            "Brian",   # en-GB
+            "Emma",    # en-GB
+            "Kendra",  # en-US
+            "Salli",   # en-US
+        ]
+        # Try Neural candidates in order
+        for voice_id in neural_candidates:
+            try:
+                response = self.polly_client.synthesize_speech(
+                    Text=text,
+                    OutputFormat="pcm",
+                    SampleRate=str(self._audio_sample_rate),
+                    VoiceId=voice_id,
+                    Engine="neural"
+                )
+                logging.info(f"Polly: using Neural voice '{voice_id}'")
+                return response.get("AudioStream")
+            except Exception as e:
+                msg = str(e)
+                if "does not support the selected engine" in msg.lower() or "validationexception" in msg.lower():
+                    logging.info(f"Polly: {voice_id} doesn't support Neural in this region; trying next candidate")
+                    continue
+                # Other errors: try next candidate
+                logging.warning(f"Polly Neural attempt failed for {voice_id}: {e}")
+                continue
+        # If none of the Neural candidates worked, fall back to Standard on the first candidate
+        fallback_voice = neural_candidates[0]
         try:
             response = self.polly_client.synthesize_speech(
                 Text=text,
                 OutputFormat="pcm",
                 SampleRate=str(self._audio_sample_rate),
-                VoiceId="Matthew",
-                Engine="neural"
+                VoiceId=fallback_voice,
+                Engine="standard"
             )
+            logging.info(f"Polly: falling back to Standard voice '{fallback_voice}'")
             return response.get("AudioStream")
-        except Exception as e:
-            logging.error(f"Polly synth error: {e}")
+        except Exception as e2:
+            logging.error(f"Polly synth fallback error: {e2}")
             return None
 
     def _play_pcm_stream_with_interrupt(self, audio_stream):
@@ -146,22 +181,42 @@ class VoiceAgent:
             logging.error(f"Speech error: {e}")
             
     def _listen_for_interruption(self):
-        """Listen for interruptions while speaking"""
-        with sr.Microphone() as source:
-            try:
-                self.recognizer.adjust_for_ambient_noise(source, duration=0.3)
-                # Listen with shorter timeout for interruption detection
-                audio = self.recognizer.listen(source, timeout=1, phrase_time_limit=2)
-                result = self.recognizer.recognize_google(audio)
-                if result and len(result.strip()) > 0:
-                    logging.info(f"🔄 Interruption detected: {result}")
-                    self.interruption_detected = True
-                    self.interruption_text = result.strip()
+        """Listen for interruptions while speaking (continuous, more sensitive, uses selected mic)."""
+        # Use selected microphone if available
+        try:
+            if hasattr(self, 'selected_microphone') and self.selected_microphone is not None:
+                source = sr.Microphone(device_index=self.selected_microphone)
+            else:
+                source = sr.Microphone()
+        except Exception:
+            source = sr.Microphone()
 
-            except (sr.UnknownValueError, sr.WaitTimeoutError):
+        with source as mic:
+            try:
+                # Quick ambient calibration
+                self.recognizer.adjust_for_ambient_noise(mic, duration=0.2)
+            except Exception:
                 pass
-            except Exception as e:
-                logging.error(f"Interruption detection error: {e}")
+
+            # Continuously poll for speech while TTS is ongoing
+            while self.is_speaking and not self.interruption_detected:
+                try:
+                    audio = self.recognizer.listen(mic, timeout=0.7, phrase_time_limit=3)
+                    result = self.recognizer.recognize_google(audio)
+                    if result and len(result.strip()) > 0:
+                        logging.info(f"🔄 Interruption detected: {result}")
+                        self.interruption_detected = True
+                        self.interruption_text = result.strip()
+                        break
+                except sr.WaitTimeoutError:
+                    # No speech in this short window; keep listening
+                    continue
+                except sr.UnknownValueError:
+                    # Detected sound but couldn't parse words; keep listening for clearer speech
+                    continue
+                except Exception as e:
+                    logging.error(f"Interruption detection error: {e}")
+                    break
         
     def speak(self, text):
         """Synchronous speak using Amazon Polly."""
@@ -370,32 +425,23 @@ class VoiceAgent:
         
         return [text]
 
-    def listen_for_multiple_questions(self, max_total_time=150):
+    def listen_for_multiple_questions(self, max_total_time=8):
         """
-        Listen for potentially multiple questions in one input.
-        Useful for users who ask several things at once.
+        Listen for one question at a time (fast), but still returns a single-item list for compatibility.
         """
         with sr.Microphone() as source:
-            logging.info("🎤 Listening for your questions (you can ask multiple things)...")
+            logging.info("🎤 Listening...")
             self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
             
             try:
                 audio = self.recognizer.listen(
                     source, 
-                    timeout=None,  # Wait indefinitely for speech to start
-                    phrase_time_limit=max_total_time  # Allow very long phrases for multiple questions (increased to 2.5 minutes)
+                    timeout=6,  # don't wait forever
+                    phrase_time_limit=max_total_time  # keep short phrases for responsiveness
                 )
                 result = self.recognizer.recognize_google(audio)
-                logging.info(f"✅ Multiple questions heard: {result}")
-                
-                # Detect if multiple questions were asked
-                questions = self.detect_multiple_questions(result)
-                if len(questions) > 1:
-                    logging.info(f"📝 Detected {len(questions)} separate questions")
-                    for i, q in enumerate(questions, 1):
-                        logging.info(f"  Question {i}: {q}")
-                
-                return result, questions
+                logging.info(f"✅ Heard: {result}")
+                return result, [result]
             except sr.UnknownValueError:
                 logging.info("🔇 Could not understand audio")
                 return None, []

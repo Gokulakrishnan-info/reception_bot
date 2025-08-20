@@ -26,9 +26,22 @@ logging.basicConfig(
 )
 
 # Configuration
-EMBEDDING_FILE = r"C:\Users\Gokulakrishnan\Documents\Python_Learnings\CAM_AI_ASSISTANT\Jarvis_To_Wake\face_db.pkl"
-SIMILARITY_THRESHOLD = 0.7
+EMBEDDING_FILE = os.getenv("EMBEDDING_FILE", r"C:\Users\Gokulakrishnan\Documents\Python_Learnings\CAM_AI_ASSISTANT\Modular_AI_Bot\face_db_arcface.pkl")
+SIMILARITY_THRESHOLD = float(os.getenv("SIMILARITY_THRESHOLD", "0.30"))  # Lowered ArcFace threshold for easier recognition
+EMPLOYEE_PHOTOS_DIR = os.getenv("EMPLOYEE_PHOTOS_DIR", r"C:\Users\Gokulakrishnan\Documents\Python_Learnings\CAM_AI_ASSISTANT\Modular_AI_Bot\employee_photos")
+ARC_FACE_MODEL = os.getenv("ARC_FACE_MODEL", "ArcFace")
 WAKE_WORD = "jarvis"
+FOLLOW_UP_PROMPT = os.getenv("FOLLOW_UP_PROMPT", "How else can I help you?")
+
+# Recognition tuning (env-overridable)
+FRAME_COUNT = int(os.getenv("RECOG_FRAME_COUNT", "16"))              # max frames to evaluate per attempt
+CONSECUTIVE_REQUIRED = int(os.getenv("RECOG_CONSECUTIVE", "1"))       # frames required above threshold for accept
+VAR_LAPLACIAN_MIN = float(os.getenv("RECOG_FOCUS_MIN", "10.0"))       # focus measure threshold (blur filter) - lowered for photos/videos
+MIN_FACE_RATIO = float(os.getenv("RECOG_MIN_FACE_RATIO", "0.04"))      # min face area ratio of frame
+BRIGHTNESS_MIN = float(os.getenv("RECOG_BRIGHTNESS_MIN", "10.0"))     # gray mean lower bound - very permissive for photos/videos
+BRIGHTNESS_MAX = float(os.getenv("RECOG_BRIGHTNESS_MAX", "230.0"))    # gray mean upper bound - more permissive
+RECOG_TIME_LIMIT_SECS = float(os.getenv("RECOG_TIME_LIMIT_SECS", "2.5"))  # hard cap per recognition attempt
+EARLY_ACCEPT_MARGIN = float(os.getenv("RECOG_EARLY_ACCEPT_MARGIN", "0.10"))  # accept immediately if top-second >= margin
 
 # AWS Bedrock Configuration
 AWS_REGION = "us-east-1"  # Change to your preferred region
