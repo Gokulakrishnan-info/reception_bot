@@ -427,27 +427,120 @@ class VoiceAgent:
 
     def listen_for_multiple_questions(self, max_total_time=8):
         """
-        Listen for one question at a time (fast), but still returns a single-item list for compatibility.
+        Listen for user input with better patience and speech handling.
+        Returns (raw_text, [parsed_questions]) for compatibility.
         """
         with sr.Microphone() as source:
             logging.info("🎤 Listening...")
             self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
             
+            # Increase timeout to be more patient with speech
+            timeout = min(max_total_time, 10)  # Wait up to 10 seconds for speech to start
+            phrase_time_limit = min(max_total_time, 15)  # Allow longer phrases for complete thoughts
+            
             try:
                 audio = self.recognizer.listen(
                     source, 
-                    timeout=6,  # don't wait forever
-                    phrase_time_limit=max_total_time  # keep short phrases for responsiveness
+                    timeout=timeout,  # Wait longer for speech to start
+                    phrase_time_limit=phrase_time_limit  # Allow longer continuous speech
                 )
                 result = self.recognizer.recognize_google(audio)
                 logging.info(f"✅ Heard: {result}")
-                return result, [result]
+                
+                # Parse for multiple questions if detected
+                questions = self.detect_multiple_questions(result)
+                return result, questions
+                
             except sr.UnknownValueError:
                 logging.info("🔇 Could not understand audio")
                 return None, []
+            except sr.WaitTimeoutError:
+                logging.info(f"⏰ No speech detected within {timeout} seconds")
+                return None, []
             except sr.RequestError as e:
                 logging.error(f"Speech recognition error: {e}")
-                return None
+                return None, []
             except Exception as e:
                 logging.error(f"Voice error: {e}")
                 return None, []
+
+    def listen_with_retry(self, max_attempts=2, max_total_time=10):
+        """
+        Listen for user input with automatic retry for unclear speech.
+        Returns (raw_text, [parsed_questions]) or (None, []) if all attempts fail.
+        """
+        for attempt in range(max_attempts):
+            logging.info(f"🎤 Listening attempt {attempt + 1}/{max_attempts}...")
+            
+            with sr.Microphone() as source:
+                self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+                
+                try:
+                    audio = self.recognizer.listen(
+                        source, 
+                        timeout=8,  # Wait for speech to start
+                        phrase_time_limit=12  # Allow longer phrases
+                    )
+                    result = self.recognizer.recognize_google(audio)
+                    
+                    if result and len(result.strip()) >= 3:
+                        logging.info(f"✅ Clear speech heard: {result}")
+                        questions = self.detect_multiple_questions(result)
+                        return result, questions
+                    else:
+                        logging.info(f"⚠️ Speech too short/unclear: '{result}'")
+                        # Don't continue to next attempt if we got some result, even if unclear
+                        if not result:
+                            if attempt < max_attempts - 1:
+                                continue
+                        else:
+                            # We got some result, return it even if unclear
+                            return result, []
+                        
+                except sr.UnknownValueError:
+                    logging.info(f"🔇 Attempt {attempt + 1}: Could not understand audio")
+                    if attempt < max_attempts - 1:
+                        continue
+                except sr.WaitTimeoutError:
+                    logging.info(f"⏰ Attempt {attempt + 1}: No speech detected")
+                    if attempt < max_attempts - 1:
+                        continue
+                except Exception as e:
+                    logging.error(f"❌ Attempt {attempt + 1} error: {e}")
+                    if attempt < max_attempts - 1:
+                        continue
+        
+        logging.info("❌ All listening attempts failed")
+        return None, []
+
+    def detect_incomplete_speech(self, text):
+        """
+        Detect if speech was likely cut off or incomplete.
+        Returns True if speech seems incomplete.
+        """
+        if not text:
+            return True
+            
+        text = text.strip()
+        
+        # Check for very short responses
+        if len(text) < 3:
+            return True
+            
+        # Check for incomplete sentences (ending with common incomplete patterns)
+        incomplete_patterns = [
+            "and", "but", "or", "so", "because", "if", "when", "where", "how",
+            "what", "who", "why", "which", "that", "the", "a", "an", "in", "on",
+            "at", "to", "for", "of", "with", "by", "from", "up", "down"
+        ]
+        
+        text_lower = text.lower()
+        for pattern in incomplete_patterns:
+            if text_lower.endswith(f" {pattern}"):
+                return True
+                
+        # Check for trailing prepositions or articles
+        if text_lower.endswith((" the", " a", " an", " in", " on", " at", " to", " for")):
+            return True
+            
+        return False
